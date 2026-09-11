@@ -9,11 +9,11 @@ name = "tavr"
 path = "./src/bin/main.rs"
 
 [dependencies]
-esp-hal = { version = "~1.1.0", features = ["defmt", "esp32s3", "unstable"] }
+esp-hal = { version = "~1.2.0", features = ["defmt", "esp32s3", "unstable"] }
 
 
-defmt                  = "1.0.1"
-esp-bootloader-esp-idf = { version = "0.5.0", features = ["defmt", "esp32s3"] }
+defmt                  = "1.1.1"
+esp-bootloader-esp-idf = { version = "0.6.0", features = ["defmt", "esp32s3"] }
 
 critical-section = "1.2.0"
 esp-backtrace = { version = "0.19.0", features = [
