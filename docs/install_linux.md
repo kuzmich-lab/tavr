@@ -16,14 +16,17 @@ SUBSYSTEMS=="usb", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", GROUP="esp
 
 ESP-IDF Install
 > yay -S esp-idf
-> /opt/esp-idf/install.fish
+> /opt/esp-idf/install.fish --target esp32s3
 > source /opt/esp-idf/export.fish
 
 Toolchain Installation
 > rustup toolchain install stable --component rust-src
-
+> cargo install ldproxy --locked
 > cargo install espup --locked
-> espup install
+> espup install --targets esp32s3
+> espup completions fish > ~/.config/fish/completions/espup.fish
+
+
 > cargo install esp-generate --locked
 > cargo install espflash --locked
 > cargo install esp-config --features=tui --locked
