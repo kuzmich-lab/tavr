@@ -1,6 +1,6 @@
 [package]
 edition      = "2024"
-name         = "tavr-test"
+name         = "tavr"
 version      = "0.1.0"
 
 [dependencies]
@@ -26,6 +26,10 @@ esp-println = { version = "0.17.0", features = ["defmt-espflash", "esp32s3"] }
 critical-section = "1.2.0"
 static_cell      = "2.1.1"
 
+oled_async = "0.2.1"
+display-interface = "0.5"
+display-interface-i2c = "0.5"
+embedded-graphics = "0.8.1"
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
 [profile.dev]

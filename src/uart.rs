@@ -1,7 +1,7 @@
 use defmt::{info, warn};
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use esp_hal::Async;
-use esp_hal::uart::{AtCmdConfig, RxConfig, Uart, UartRx, UartTx};
+use esp_hal::uart::{UartRx, UartTx};
 
 const READ_BUF_SIZE: usize = 64;
 

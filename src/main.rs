@@ -8,22 +8,31 @@
 #![deny(clippy::large_stack_frames)]
 
 use defmt::info;
+use display_interface_i2c::I2CInterface;
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use embassy_time::{Duration, Ticker, Timer};
+use embedded_graphics::{
+    mono_font::{MonoTextStyleBuilder, ascii::FONT_6X10},
+    pixelcolor::BinaryColor,
+    prelude::*,
+    text::{Baseline, Text},
+};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::dma::{DmaRxBuf, DmaTxBuf};
 use esp_hal::dma_buffers;
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
-
+use esp_hal::i2c::master::I2c;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::spi::Mode;
-use esp_hal::spi::master::{Config, Spi};
+use esp_hal::spi::master::Spi;
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{AtCmdConfig, RxConfig, Uart};
 use esp_println as _;
+use oled_async::Builder;
+use oled_async::prelude::GraphicsMode;
 use static_cell::StaticCell;
 
 mod gpio;
@@ -59,8 +68,8 @@ async fn main(spawner: Spawner) -> ! {
     let gnss_rxd = peripherals.GPIO5;
     let gnss_txd = peripherals.GPIO6;
     // let gnss_1pps = peripherals.GPIO7;
-    // let i2c_sda = peripherals.GPIO8;
-    // let i2c_sdl = peripherals.GPIO9;
+    let i2c_sda = peripherals.GPIO8;
+    let i2c_sdl = peripherals.GPIO9;
     // let sd_cs = peripherals.GPIO10;
     let spi_mosi = peripherals.GPIO11;
     let spi_miso = peripherals.GPIO12;
@@ -105,7 +114,7 @@ async fn main(spawner: Spawner) -> ! {
 
     let mut spi = Spi::new(
         peripherals.SPI2,
-        Config::default()
+        esp_hal::spi::master::Config::default()
             .with_frequency(Rate::from_khz(100))
             .with_mode(Mode::_0),
     )
@@ -141,8 +150,41 @@ async fn main(spawner: Spawner) -> ! {
     let signal = &*SIGNAL.init(Signal::new());
 
     let led = Output::new(user_led, Level::High, OutputConfig::default());
-    let fan = Output::new(fan_ctrl, Level::Low, OutputConfig::default());
+    let _ = Output::new(fan_ctrl, Level::Low, OutputConfig::default()); //fan control
     let button = Input::new(user_button, InputConfig::default().with_pull(Pull::Up));
+
+    let i2c0 = I2c::new(
+        peripherals.I2C0,
+        esp_hal::i2c::master::Config::default().with_frequency(Rate::from_khz(400)),
+    )
+    .unwrap()
+    .with_sda(i2c_sda)
+    .with_scl(i2c_sdl)
+    .into_async();
+
+    let di = I2CInterface::new(
+        i2c0, // I2C
+        0x3C, // I2C Address
+        0x40, // Databyte
+    );
+
+    let raw_disp = Builder::new(oled_async::displays::sh1106::Sh1106_128_64 {}).connect(di);
+
+    let mut disp: GraphicsMode<_, _> = raw_disp.into();
+    disp.init().await.unwrap();
+    disp.clear();
+    disp.flush().await.unwrap();
+
+    let text_style = MonoTextStyleBuilder::new()
+        .font(&FONT_6X10)
+        .text_color(BinaryColor::On)
+        .build();
+
+    Text::with_baseline("Hello world!", Point::zero(), text_style, Baseline::Top)
+        .draw(&mut disp)
+        .unwrap();
+
+    disp.flush().await.unwrap();
 
     spawner.spawn(uart::uart_reader(rx, &signal).unwrap());
     spawner.spawn(uart::uart_writer(tx, &signal).unwrap());
