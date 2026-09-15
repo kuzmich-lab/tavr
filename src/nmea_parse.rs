@@ -1,5 +1,5 @@
 #![no_std]
-fn get_ascii_str<'a>(buffer: &'a [u8]) -> Result<&'a str, ()> {
+pub fn get_ascii_str<'a>(buffer: &'a [u8]) -> Result<&'a str, ()> {
     for byte in buffer.into_iter() {
         if byte >= &128 {
             return Err(());

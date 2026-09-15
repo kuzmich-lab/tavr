@@ -6,14 +6,14 @@
     holding buffers for the duration of a data transfer."
 )]
 #![deny(clippy::large_stack_frames)]
+#![feature(split_array)]
 
 use defmt::info;
 use display_interface_i2c::I2CInterface;
 use embassy_executor::Spawner;
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use embassy_time::{Duration, Ticker, Timer};
 use embedded_graphics::{
-    mono_font::{MonoTextStyleBuilder, ascii::FONT_6X10},
+    mono_font::{MonoTextStyleBuilder, iso_8859_5::FONT_6X12},
     pixelcolor::BinaryColor,
     prelude::*,
     text::{Baseline, Text},
@@ -33,7 +33,6 @@ use esp_hal::uart::{AtCmdConfig, RxConfig, Uart};
 use esp_println as _;
 use oled_async::Builder;
 use oled_async::prelude::GraphicsMode;
-use static_cell::StaticCell;
 
 mod gpio;
 mod uart;
@@ -146,9 +145,6 @@ async fn main(spawner: Spawner) -> ! {
 
     let (rx, tx) = uart0.split();
 
-    static SIGNAL: StaticCell<Signal<NoopRawMutex, usize>> = StaticCell::new();
-    let signal = &*SIGNAL.init(Signal::new());
-
     let led = Output::new(user_led, Level::High, OutputConfig::default());
     let _ = Output::new(fan_ctrl, Level::Low, OutputConfig::default()); //fan control
     let button = Input::new(user_button, InputConfig::default().with_pull(Pull::Up));
@@ -176,18 +172,18 @@ async fn main(spawner: Spawner) -> ! {
     disp.flush().await.unwrap();
 
     let text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_6X10)
+        .font(&FONT_6X12)
         .text_color(BinaryColor::On)
         .build();
 
-    Text::with_baseline("Hello world!", Point::zero(), text_style, Baseline::Top)
+    Text::with_baseline("Привет мир!", Point::zero(), text_style, Baseline::Top)
         .draw(&mut disp)
         .unwrap();
 
     disp.flush().await.unwrap();
 
-    spawner.spawn(uart::uart_reader(rx, &signal).unwrap());
-    spawner.spawn(uart::uart_writer(tx, &signal).unwrap());
+    spawner.spawn(uart::uart_reader(rx).unwrap());
+    spawner.spawn(uart::nmea_parser().unwrap());
     spawner.spawn(low_prio_async().unwrap());
     spawner.spawn(gpio::blink_led(led).unwrap());
     //spawner.spawn(blink_led(fan).unwrap());
