@@ -6,7 +6,6 @@
     holding buffers for the duration of a data transfer."
 )]
 #![deny(clippy::large_stack_frames)]
-#![feature(split_array)]
 
 use defmt::info;
 use display_interface_i2c::I2CInterface;
@@ -176,14 +175,29 @@ async fn main(spawner: Spawner) -> ! {
         .text_color(BinaryColor::On)
         .build();
 
-    Text::with_baseline("Привет мир!", Point::zero(), text_style, Baseline::Top)
+    Text::with_baseline("Привет Сева!", Point::zero(), text_style, Baseline::Top)
         .draw(&mut disp)
         .unwrap();
+    Text::with_baseline(
+        "Пора спать.",
+        Point { x: (0), y: (15) },
+        text_style,
+        Baseline::Top,
+    )
+    .draw(&mut disp)
+    .unwrap();
+    Text::with_baseline(
+        "Спокойной ночи... -_-",
+        Point { x: (0), y: (30) },
+        text_style,
+        Baseline::Top,
+    )
+    .draw(&mut disp)
+    .unwrap();
 
     disp.flush().await.unwrap();
 
     spawner.spawn(uart::uart_reader(rx).unwrap());
-    spawner.spawn(uart::nmea_parser().unwrap());
     spawner.spawn(low_prio_async().unwrap());
     spawner.spawn(gpio::blink_led(led).unwrap());
     //spawner.spawn(blink_led(fan).unwrap());

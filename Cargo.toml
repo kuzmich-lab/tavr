@@ -30,6 +30,7 @@ oled_async = "0.2.1"
 display-interface-i2c = "0.5"
 embedded-graphics = "0.8.1"
 nmea = { version = "0.8", default-features = false, features = ["defmt", "GNSS"]}
+sh1106 = "0.5.0"
 #chrono = "0.4.0"
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
