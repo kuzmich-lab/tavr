@@ -7,16 +7,12 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
-use defmt::info;
-use display_interface_i2c::I2CInterface;
+use chrono::{NaiveDate, NaiveTime};
+use defmt::Format;
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Ticker, Timer};
-use embedded_graphics::{
-    mono_font::{MonoTextStyleBuilder, iso_8859_5::FONT_6X12},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    text::{Baseline, Text},
-};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
+use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::dma::{DmaRxBuf, DmaTxBuf};
@@ -28,30 +24,27 @@ use esp_hal::spi::Mode;
 use esp_hal::spi::master::Spi;
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hal::uart::{AtCmdConfig, RxConfig, Uart};
+use esp_hal::uart::{RxConfig, Uart};
 use esp_println as _;
-use oled_async::Builder;
-use oled_async::prelude::GraphicsMode;
 
 mod gpio;
+mod low_prio;
 mod uart;
-
-const AT_CMD: u8 = 0x04;
-const READ_BUF_SIZE: usize = 64;
+mod viewer;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-#[embassy_executor::task]
-async fn low_prio_async() {
-    info!(
-        "Starting low-priority task that will not be able to run while the blocking task is running"
-    );
-    let mut ticker = Ticker::every(Duration::from_secs(1));
-    loop {
-        info!("Low priority ticks");
-        ticker.next().await;
-    }
+#[derive(Clone, Copy, Format)]
+pub struct NmeaPosition {
+    date: Option<NaiveDate>,
+    time: Option<NaiveTime>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+    altitude: Option<f32>,
+    speed_over_ground: Option<f32>,
+    num_of_fix_satellites: Option<u32>,
 }
+pub static POSITION_CHANNEL: Channel<CriticalSectionRawMutex, NmeaPosition, 4> = Channel::new();
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
@@ -125,24 +118,21 @@ async fn main(spawner: Spawner) -> ! {
     .with_buffers(dma_rx_buf, dma_tx_buf)
     .into_async();
 
-    let send_buffer = [0, 1, 2, 3, 4, 5, 6, 7];
-
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
 
     let config = esp_hal::uart::Config::default()
         .with_baudrate(9600)
-        .with_rx(RxConfig::default().with_fifo_full_threshold(READ_BUF_SIZE as u16));
+        .with_rx(RxConfig::default().with_fifo_full_threshold(64));
 
-    let mut uart0 = Uart::new(peripherals.UART0, config)
+    let uart0 = Uart::new(peripherals.UART0, config)
         .unwrap()
         .with_tx(gnss_txd)
         .with_rx(gnss_rxd)
         .into_async();
-    uart0.set_at_cmd(AtCmdConfig::default().with_cmd_char(AT_CMD));
-
-    let (rx, tx) = uart0.split();
+    //uart0.set_at_cmd(AtCmdConfig::default().with_cmd_char(0x04));
+    //let (rx, _) = uart0.split();
 
     let led = Output::new(user_led, Level::High, OutputConfig::default());
     let _ = Output::new(fan_ctrl, Level::Low, OutputConfig::default()); //fan control
@@ -157,60 +147,23 @@ async fn main(spawner: Spawner) -> ! {
     .with_scl(i2c_sdl)
     .into_async();
 
-    let di = I2CInterface::new(
-        i2c0, // I2C
-        0x3C, // I2C Address
-        0x40, // Databyte
-    );
-
-    let raw_disp = Builder::new(oled_async::displays::sh1106::Sh1106_128_64 {}).connect(di);
-
-    let mut disp: GraphicsMode<_, _> = raw_disp.into();
-    disp.init().await.unwrap();
-    disp.clear();
-    disp.flush().await.unwrap();
-
-    let text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_6X12)
-        .text_color(BinaryColor::On)
-        .build();
-
-    Text::with_baseline("Привет Сева!", Point::zero(), text_style, Baseline::Top)
-        .draw(&mut disp)
-        .unwrap();
-    Text::with_baseline(
-        "Пора спать.",
-        Point { x: (0), y: (15) },
-        text_style,
-        Baseline::Top,
-    )
-    .draw(&mut disp)
-    .unwrap();
-    Text::with_baseline(
-        "Спокойной ночи... -_-",
-        Point { x: (0), y: (30) },
-        text_style,
-        Baseline::Top,
-    )
-    .draw(&mut disp)
-    .unwrap();
-
-    disp.flush().await.unwrap();
-
-    spawner.spawn(uart::uart_reader(rx).unwrap());
-    spawner.spawn(low_prio_async().unwrap());
+    spawner.spawn(uart::uart_reader(uart0, POSITION_CHANNEL.sender()).unwrap());
+    spawner.spawn(low_prio::low_prio_async().unwrap());
     spawner.spawn(gpio::blink_led(led).unwrap());
-    //spawner.spawn(blink_led(fan).unwrap());
+    spawner.spawn(viewer::viewer(i2c0, POSITION_CHANNEL.receiver()).unwrap());
     spawner.spawn(gpio::press_button(button).unwrap());
 
     loop {
-        info!("Bing!");
-        let mut buffer = [0; 8];
-        info!("SPI Sending bytes");
+        let mut send_buffer = [0u8; 1024];
+        for i in 0..send_buffer.len() {
+            send_buffer[i] = (i % 255) as u8;
+        }
+
+        let mut buffer = [0; 1024];
         embedded_hal_async::spi::SpiBus::transfer(&mut spi, &mut buffer, &send_buffer)
             .await
             .unwrap();
-        info!("SPI Bytes received: {:?}", buffer);
+        //info!("SPI Bytes received: {:?}", buffer);
         Timer::after(Duration::from_millis(5_000)).await;
     }
 }

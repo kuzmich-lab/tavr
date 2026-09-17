@@ -104,7 +104,9 @@ version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
+ "defmt 1.1.1",
  "num-traits",
+ "pure-rust-locales",
 ]
 
 [[package]]
@@ -1364,6 +1366,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pure-rust-locales"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "869675ad2d7541aea90c6d88c81f46a7f4ea9af8cd0395d38f11a95126998a0d"
+dependencies = [
+ "defmt 1.1.1",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1541,16 +1552,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sh1106"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc12a0563ec9b3b1f99b1f64613581ebbade1347416a34766564f406c15d1bf3"
-dependencies = [
- "embedded-graphics-core",
- "embedded-hal 0.2.7",
-]
-
-[[package]]
 name = "sharded-slab"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1654,6 +1655,7 @@ dependencies = [
 name = "tavr"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "critical-section",
  "defmt 1.1.1",
  "display-interface-i2c",
@@ -1670,7 +1672,6 @@ dependencies = [
  "esp-rtos",
  "nmea",
  "oled_async",
- "sh1106",
  "static_cell",
 ]
 

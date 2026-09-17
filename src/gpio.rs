@@ -13,8 +13,8 @@ pub async fn blink_led(mut pin_led: Output<'static>) {
 #[embassy_executor::task]
 pub async fn press_button(mut pin_button: Input<'static>) {
     loop {
-        // Wait for Button Press
         pin_button.wait_for_low().await;
         info!("Button Pressed!");
+        Timer::after(Duration::from_millis(100)).await;
     }
 }
