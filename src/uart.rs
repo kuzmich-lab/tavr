@@ -1,5 +1,5 @@
-use crate::{NmeaPosition, POSITION_CHANNEL};
-use defmt::info;
+use crate::NmeaPosition;
+//use defmt::info;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Sender;
 use embassy_time::{Duration, Timer};
@@ -51,7 +51,7 @@ pub async fn uart_reader(
                     buf_count += 1;
                 }
             }
-            Err(err) => info!("read ERR: {}", err),
+            Err(_) => {} //info!("read ERR: {}", err),
         }
 
         if buf_count > 1024 {
@@ -64,15 +64,16 @@ pub async fn uart_reader(
                     match nmea::parse_bytes(&item) {
                         Ok(_) => {
                             let nmea_position = NmeaPosition {
-                                date: nmea.fix_date,
-                                time: nmea.fix_time,
-                                latitude: nmea.latitude,
-                                longitude: nmea.longitude,
-                                altitude: nmea.altitude,
-                                speed_over_ground: nmea.speed_over_ground,
-                                num_of_fix_satellites: nmea.num_of_fix_satellites,
+                                date: nmea.fix_date.unwrap_or_default(),
+                                time: nmea.fix_time.unwrap_or_default(),
+                                latitude: nmea.latitude.unwrap_or_default(),
+                                longitude: nmea.longitude.unwrap_or_default(),
+                                altitude: nmea.altitude.unwrap_or_default(),
+                                speed_over_ground: nmea.speed_over_ground.unwrap_or_default(),
+                                num_of_fix_satellites: nmea
+                                    .num_of_fix_satellites
+                                    .unwrap_or_default(),
                             };
-                            info!("position: {}", nmea_position);
                             sender.send(nmea_position).await;
                         }
                         Err(_) => {} // info!("NMEA Parse Error: {:?}", e),

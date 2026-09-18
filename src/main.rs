@@ -9,41 +9,54 @@
 
 use chrono::{NaiveDate, NaiveTime};
 use defmt::Format;
+use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Channel;
+use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::dma::{DmaRxBuf, DmaTxBuf};
-use esp_hal::dma_buffers;
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::i2c::master::I2c;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::spi::Mode;
 use esp_hal::spi::master::Spi;
+use esp_hal::spi::master::SpiDmaBus;
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{RxConfig, Uart};
+use esp_hal::{Async, dma_buffers};
 use esp_println as _;
+use static_cell::StaticCell;
 
 mod gpio;
+mod lora_receive;
+mod lora_send;
 mod low_prio;
 mod uart;
 mod viewer;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-#[derive(Clone, Copy, Format)]
+#[derive(Clone, Copy, Format, Default)]
 pub struct NmeaPosition {
-    date: Option<NaiveDate>,
-    time: Option<NaiveTime>,
-    latitude: Option<f64>,
-    longitude: Option<f64>,
-    altitude: Option<f32>,
-    speed_over_ground: Option<f32>,
-    num_of_fix_satellites: Option<u32>,
+    date: NaiveDate,
+    time: NaiveTime,
+    latitude: f64,
+    longitude: f64,
+    altitude: f32,
+    speed_over_ground: f32,
+    num_of_fix_satellites: u32,
 }
+impl NmeaPosition {
+    fn new() -> Self {
+        Default::default()
+    }
+}
+
 pub static POSITION_CHANNEL: Channel<CriticalSectionRawMutex, NmeaPosition, 4> = Channel::new();
 
 #[esp_rtos::main]
@@ -61,7 +74,7 @@ async fn main(spawner: Spawner) -> ! {
     // let gnss_1pps = peripherals.GPIO7;
     let i2c_sda = peripherals.GPIO8;
     let i2c_sdl = peripherals.GPIO9;
-    // let sd_cs = peripherals.GPIO10;
+    //let sd_cs = peripherals.GPIO10;
     let spi_mosi = peripherals.GPIO11;
     let spi_miso = peripherals.GPIO12;
     let spi_sck = peripherals.GPIO13;
@@ -103,7 +116,7 @@ async fn main(spawner: Spawner) -> ! {
     let dma_rx_buf = DmaRxBuf::new(rx_descriptors, rx_buffer).unwrap();
     let dma_tx_buf = DmaTxBuf::new(tx_descriptors, tx_buffer).unwrap();
 
-    let mut spi = Spi::new(
+    let spi = Spi::new(
         peripherals.SPI2,
         esp_hal::spi::master::Config::default()
             .with_frequency(Rate::from_khz(100))
@@ -117,6 +130,15 @@ async fn main(spawner: Spawner) -> ! {
     .with_dma(dma_channel)
     .with_buffers(dma_rx_buf, dma_tx_buf)
     .into_async();
+
+    static SPI_BUS: StaticCell<Mutex<CriticalSectionRawMutex, SpiDmaBus<'static, Async>>> =
+        StaticCell::new();
+
+    //let spi_bus = Mutex::new(spi);
+    let spi_bus = SPI_BUS.init(spi);
+
+    let spi_device =
+        embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice::new(spi_bus, lora_cs);
 
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let timg0 = TimerGroup::new(peripherals.TIMG0);
@@ -151,19 +173,10 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(low_prio::low_prio_async().unwrap());
     spawner.spawn(gpio::blink_led(led).unwrap());
     spawner.spawn(viewer::viewer(i2c0, POSITION_CHANNEL.receiver()).unwrap());
+    spawner.spawn(lora_send::send_packet(spi_device).unwrap());
     spawner.spawn(gpio::press_button(button).unwrap());
 
     loop {
-        let mut send_buffer = [0u8; 1024];
-        for i in 0..send_buffer.len() {
-            send_buffer[i] = (i % 255) as u8;
-        }
-
-        let mut buffer = [0; 1024];
-        embedded_hal_async::spi::SpiBus::transfer(&mut spi, &mut buffer, &send_buffer)
-            .await
-            .unwrap();
-        //info!("SPI Bytes received: {:?}", buffer);
         Timer::after(Duration::from_millis(5_000)).await;
     }
 }
