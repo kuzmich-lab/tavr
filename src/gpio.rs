@@ -18,3 +18,19 @@ pub async fn press_button(mut pin_button: Input<'static>) {
         Timer::after(Duration::from_millis(100)).await;
     }
 }
+
+#[embassy_executor::task]
+pub async fn pps_flash(mut pps_1: Input<'static>) {
+    loop {
+        pps_1.wait_for_high().await;
+        info!("1pps flash");
+        Timer::after(Duration::from_millis(900)).await;
+    }
+}
+
+#[embassy_executor::task]
+pub async fn get_temp() {
+    loop {
+        Timer::after(Duration::from_millis(100)).await;
+    }
+}

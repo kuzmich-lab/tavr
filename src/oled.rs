@@ -54,6 +54,17 @@ pub async fn viewer(
         .unwrap();
 
     loop {
+        disp.clear();
+        Text::with_baseline("lat:", Point { x: 78, y: 0 }, text_style, Baseline::Top)
+            .draw(&mut disp)
+            .unwrap();
+        Text::with_baseline("lon:", Point { x: 78, y: 10 }, text_style, Baseline::Top)
+            .draw(&mut disp)
+            .unwrap();
+        Text::with_baseline("sat:", Point { x: 78, y: 20 }, text_style, Baseline::Top)
+            .draw(&mut disp)
+            .unwrap();
+
         Text::with_baseline(
             unsafe {
                 core::str::from_utf8_unchecked(write(nmea_position.latitude, &mut float_buf))
@@ -90,6 +101,6 @@ pub async fn viewer(
         disp.flush().await.unwrap();
         let nmea_position = receiver.receive().await;
         info!("nmea_position: {}", nmea_position);
-        Timer::after(Duration::from_millis(1_000)).await;
+        Timer::after(Duration::from_millis(100)).await;
     }
 }

@@ -1,33 +1,32 @@
 [package]
 edition      = "2024"
 name         = "tavr"
-version      = "0.1.0"
+version      = "0.1.1"
 
 [dependencies]
-esp-hal = { version = "~1.1.0", features = ["defmt", "esp32s3", "unstable"] }
-esp-rtos = { version = "0.3.0", features = ["defmt", "embassy", "esp32s3"] }
-defmt                  = "1.0.1"
-esp-bootloader-esp-idf = { version = "0.5.0", features = ["defmt", "esp32s3"] }
+esp-hal = { version = "1.2.0", features = ["defmt", "esp32s3", "unstable"] }
+esp-rtos = { version = "0.4.0", features = ["defmt", "embassy", "esp32s3"] }
+defmt = "1.1.1"
+esp-bootloader-esp-idf = { version = "0.6.0", features = ["defmt", "esp32s3"] }
 embassy-executor = { version = "0.10.0", features = ["defmt"] }
-embassy-sync = "0.8"
+embassy-sync = "0.8.0"
 embedded-io-async = "0.7.0"
-embassy-time = { version = "0.5.0", features = ["defmt"] }
-embassy-embedded-hal = { version = "0.4.0", features = ["defmt"] }
+embassy-time = { version = "0.5.1", features = ["defmt"] }
+embassy-embedded-hal = { version = "0.6.0", features = ["defmt"] }
 embedded-hal-async = "1.0.0"
-
-esp-backtrace = { version = "0.19.0", features = [
+esp-backtrace = { version = "0.20.0", features = [
   "defmt",
   "esp32s3",
   "panic-handler",
 ] }
-esp-println = { version = "0.17.0", features = ["defmt-espflash", "esp32s3"] }
+esp-println = { version = "0.18.0", features = ["defmt-espflash", "esp32s3"] }
 critical-section = "1.2.0"
 static_cell      = "2.1.1"
 oled_async = "0.2.1"
-display-interface-i2c = "0.5"
-embedded-graphics = "0.8.1"
-nmea = { version = "0.8", default-features = false, features = ["defmt", "GNSS"]}
-chrono = { version = "0.4.0", default-features = false, features = ["defmt"] }
+display-interface-i2c = "0.5.0"
+embedded-graphics = "0.8.2"
+nmea = { version = "0.8.0", default-features = false, features = ["defmt", "GNSS"]}
+chrono = { version = "0.4.45", default-features = false, features = ["defmt"] }
 lexical-core = { version = "1.0.6", default-features = false, features = ["write-integers", "write-floats"] }
 lora-phy = "3.0.1"
 
@@ -35,7 +34,7 @@ lora-phy = "3.0.1"
 opt-level = "s"
 
 [profile.release]
-codegen-units = 1     # LLVM can perform better optimizations using a single thread
-debug         = 2     # prefer slower builds but better debugging experience
+codegen-units = 1
+debug         = 2
 lto           = 'fat'
 opt-level     = 's'

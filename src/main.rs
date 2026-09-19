@@ -9,37 +9,29 @@
 
 use chrono::{NaiveDate, NaiveTime};
 use defmt::Format;
-use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
+use defmt::info;
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
+use esp_hal::analog::adc::{Adc, AdcConfig, Attenuation};
 use esp_hal::clock::CpuClock;
-use esp_hal::dma::{DmaRxBuf, DmaTxBuf};
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::i2c::master::I2c;
-use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::spi::Mode;
 use esp_hal::spi::master::Spi;
-use esp_hal::spi::master::SpiDmaBus;
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hal::uart::{RxConfig, Uart};
-use esp_hal::{Async, dma_buffers};
+use esp_hal::uart::{AtCmdConfig, RxConfig, Uart};
 use esp_println as _;
-use static_cell::StaticCell;
-
+mod adc;
 mod gpio;
 mod lora_receive;
 mod lora_send;
 mod low_prio;
+mod oled;
 mod uart;
-mod viewer;
-
-esp_bootloader_esp_idf::esp_app_desc!();
 
 #[derive(Clone, Copy, Format, Default)]
 pub struct NmeaPosition {
@@ -57,47 +49,49 @@ impl NmeaPosition {
     }
 }
 
+esp_bootloader_esp_idf::esp_app_desc!();
 pub static POSITION_CHANNEL: Channel<CriticalSectionRawMutex, NmeaPosition, 4> = Channel::new();
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
+    let timg0 = TimerGroup::new(peripherals.TIMG0);
+    esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
 
     // let boot = peripherals.GPIO0;
-    // let lora_dio1 = peripherals.GPIO1;
+    let lora_dio1 = peripherals.GPIO1;
     // let exp_p5_15 = peripherals.GPIO2;
-    // let lora_nreset = peripherals.GPIO3;
-    // let battery_voltage = peripherals.GPIO4;
+    let nreset = peripherals.GPIO3;
+    let battery_voltage = peripherals.GPIO4;
     let gnss_rxd = peripherals.GPIO5;
     let gnss_txd = peripherals.GPIO6;
-    // let gnss_1pps = peripherals.GPIO7;
+    let gnss_1pps = peripherals.GPIO7;
     let i2c_sda = peripherals.GPIO8;
     let i2c_sdl = peripherals.GPIO9;
-    //let sd_cs = peripherals.GPIO10;
+    // let sd_cs = peripherals.GPIO10;
     let spi_mosi = peripherals.GPIO11;
     let spi_miso = peripherals.GPIO12;
     let spi_sck = peripherals.GPIO13;
-    // let temp_samp = peripherals.GPIO14;
+    let temp_samp = peripherals.GPIO14;
     let lora_cs = peripherals.GPIO15;
     // let gnss_wake_up = peripherals.GPIO16;
     let user_button = peripherals.GPIO17;
     let user_led = peripherals.GPIO18;
-    //let esp_usb_n = peripherals.GPIO19;
-    //let esp_usb_p = peripherals.GPIO20;
-    // let lora_ctl = peripherals.GPIO21;
-    // let lora_busy = peripherals.GPIO38;
+    // let esp_usb_n = peripherals.GPIO19;
+    // let esp_usb_p = peripherals.GPIO20;
+    let lora_ctl = peripherals.GPIO21;
+    let lora_busy = peripherals.GPIO38;
     // let ext_p5_9 = peripherals.GPIO39;
-    // let lora_ldo_en = peripherals.GPIO40;
+    let lora_ldo_en = peripherals.GPIO40;
     let fan_ctrl = peripherals.GPIO41;
     // let ext_p5_10 = peripherals.GPIO42;
-    //let ext_txd = peripherals.GPIO43;
-    //let ext_rxd = peripherals.GPIO44;
+    // let ext_txd = peripherals.GPIO43;
+    // let ext_rxd = peripherals.GPIO44;
     // let ext_p5_8 = peripherals.GPIO45;
     // let ext_p6_4 = peripherals.GPIO46;
     // let ext_p5_6 = peripherals.GPIO47;
     // let ext_p5_7 = peripherals.GPIO48;
-
     let _ = peripherals.GPIO26;
     let _ = peripherals.GPIO27;
     let _ = peripherals.GPIO28;
@@ -111,11 +105,12 @@ async fn main(spawner: Spawner) -> ! {
     let _ = peripherals.GPIO36;
     let _ = peripherals.GPIO37;
 
-    let dma_channel = peripherals.DMA_CH0;
-    let (rx_buffer, rx_descriptors, tx_buffer, tx_descriptors) = dma_buffers!(32000);
-    let dma_rx_buf = DmaRxBuf::new(rx_descriptors, rx_buffer).unwrap();
-    let dma_tx_buf = DmaTxBuf::new(tx_descriptors, tx_buffer).unwrap();
-
+    let reset = Output::new(nreset, Level::Low, OutputConfig::default());
+    let cs = Output::new(lora_cs, Level::Low, OutputConfig::default());
+    let busy = Input::new(lora_busy, InputConfig::default());
+    let dio1 = Input::new(lora_dio1, InputConfig::default());
+    let _ = Output::new(lora_ldo_en, Level::High, OutputConfig::default()); // Enable LDO
+    let _ = Output::new(lora_ctl, Level::High, OutputConfig::default()); // Enable CTL SX1262
     let spi = Spi::new(
         peripherals.SPI2,
         esp_hal::spi::master::Config::default()
@@ -126,39 +121,17 @@ async fn main(spawner: Spawner) -> ! {
     .with_sck(spi_sck)
     .with_mosi(spi_mosi)
     .with_miso(spi_miso)
-    .with_cs(lora_cs)
-    .with_dma(dma_channel)
-    .with_buffers(dma_rx_buf, dma_tx_buf)
     .into_async();
-
-    static SPI_BUS: StaticCell<Mutex<CriticalSectionRawMutex, SpiDmaBus<'static, Async>>> =
-        StaticCell::new();
-
-    //let spi_bus = Mutex::new(spi);
-    let spi_bus = SPI_BUS.init(spi);
-
-    let spi_device =
-        embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice::new(spi_bus, lora_cs);
-
-    let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
-    let timg0 = TimerGroup::new(peripherals.TIMG0);
-    esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
 
     let config = esp_hal::uart::Config::default()
         .with_baudrate(9600)
         .with_rx(RxConfig::default().with_fifo_full_threshold(64));
-
-    let uart0 = Uart::new(peripherals.UART0, config)
+    let mut uart0 = Uart::new(peripherals.UART0, config)
         .unwrap()
         .with_tx(gnss_txd)
         .with_rx(gnss_rxd)
         .into_async();
-    //uart0.set_at_cmd(AtCmdConfig::default().with_cmd_char(0x04));
-    //let (rx, _) = uart0.split();
-
-    let led = Output::new(user_led, Level::High, OutputConfig::default());
-    let _ = Output::new(fan_ctrl, Level::Low, OutputConfig::default()); //fan control
-    let button = Input::new(user_button, InputConfig::default().with_pull(Pull::Up));
+    uart0.set_at_cmd(AtCmdConfig::default().with_cmd_char(0x0A));
 
     let i2c0 = I2c::new(
         peripherals.I2C0,
@@ -169,14 +142,33 @@ async fn main(spawner: Spawner) -> ! {
     .with_scl(i2c_sdl)
     .into_async();
 
+    let led = Output::new(user_led, Level::High, OutputConfig::default());
+    let _ = Output::new(fan_ctrl, Level::Low, OutputConfig::default()); //fan control
+    let button = Input::new(user_button, InputConfig::default().with_pull(Pull::Up));
+    let pps_1 = Input::new(gnss_1pps, InputConfig::default());
+
+    let mut adc1_config = AdcConfig::new();
+    let mut adc1_pin = adc1_config.enable_pin(battery_voltage, Attenuation::_11dB);
+    let mut adc1 = Adc::new(peripherals.ADC1, adc1_config).into_async();
+    let mut adc2_config = AdcConfig::new();
+    let mut adc2_pin = adc2_config.enable_pin(temp_samp, Attenuation::_11dB);
+    let mut adc2 = Adc::new(peripherals.ADC2, adc2_config).into_async();
+
+    info!("ADC1 (volt): {}", adc1.read_oneshot(&mut adc1_pin).await);
+    info!("ADC2 (temp): {}", adc2.read_oneshot(&mut adc2_pin).await);
+
     spawner.spawn(uart::uart_reader(uart0, POSITION_CHANNEL.sender()).unwrap());
-    spawner.spawn(low_prio::low_prio_async().unwrap());
+    spawner.spawn(oled::viewer(i2c0, POSITION_CHANNEL.receiver()).unwrap());
+    spawner.spawn(lora_send::send_packet(spi, reset, busy, dio1, cs).unwrap());
     spawner.spawn(gpio::blink_led(led).unwrap());
-    spawner.spawn(viewer::viewer(i2c0, POSITION_CHANNEL.receiver()).unwrap());
-    spawner.spawn(lora_send::send_packet(spi_device).unwrap());
     spawner.spawn(gpio::press_button(button).unwrap());
+    spawner.spawn(gpio::pps_flash(pps_1).unwrap());
+    // spawner.spawn(adc::get_bat_voltage(adc1, adc1_pin).unwrap());
+    // spawner.spawn(adc::get_temp(adc2, adc2_pin).unwrap());
+    spawner.spawn(low_prio::low_prio_async().unwrap());
 
     loop {
-        Timer::after(Duration::from_millis(5_000)).await;
+        info!("Main tick!");
+        Timer::after(Duration::from_millis(10_000)).await;
     }
 }

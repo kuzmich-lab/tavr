@@ -9,29 +9,6 @@ use nmea::Nmea;
 
 const UART_BUFFER_SIZE: usize = 256;
 
-// #[embassy_executor::task]
-// pub async fn uart_writer(
-//     mut tx: UartTx<'static, Async>,
-//     signal: &'static Signal<NoopRawMutex, usize>,
-// ) {
-//     use core::fmt::Write;
-//     embedded_io_async::Write::write(
-//         &mut tx,
-//         b"Hello async serial. Enter something ended with EOT (CTRL-D).\r\n",
-//     )
-//     .await
-//     .unwrap();
-//     warn!("Hello async serial. Enter something ended with EOT (CTRL-D).\r\n");
-//     embedded_io_async::Write::flush(&mut tx).await.unwrap();
-//     loop {
-//         let bytes_read = signal.wait().await;
-//         signal.reset();
-//         write!(&mut tx, "\r\n-- received {} bytes --\r\n", bytes_read).unwrap();
-//         embedded_io_async::Write::flush(&mut tx).await.unwrap();
-//     }
-// }
-//
-
 #[embassy_executor::task]
 pub async fn uart_reader(
     mut uart: Uart<'static, Async>,
@@ -74,6 +51,7 @@ pub async fn uart_reader(
                                     .num_of_fix_satellites
                                     .unwrap_or_default(),
                             };
+                            //info!("nmea_parse: {}", nmea_position);
                             sender.send(nmea_position).await;
                         }
                         Err(_) => {} // info!("NMEA Parse Error: {:?}", e),
