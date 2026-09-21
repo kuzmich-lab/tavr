@@ -25,10 +25,11 @@ static_cell      = "2.1.1"
 oled_async = "0.2.1"
 display-interface-i2c = "0.5.0"
 embedded-graphics = "0.8.2"
-nmea = { version = "0.8.0", default-features = false, features = ["defmt", "GNSS"]}
+nmea = { version = "0.8.0", default-features = false, features = ["defmt", "GNSS","GGA"]}
 chrono = { version = "0.4.45", default-features = false, features = ["defmt"] }
 lexical-core = { version = "1.0.6", default-features = false, features = ["write-integers", "write-floats"] }
 lora-phy = "3.0.1"
+crc16 = "0.4.0"
 
 [profile.dev]
 opt-level = "s"

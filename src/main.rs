@@ -24,12 +24,16 @@ use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{AtCmdConfig, RxConfig, Uart};
 use esp_println as _;
+use lora_receive::*;
+use packet::Packet;
+use packet::msg_type;
 mod adc;
 mod gpio;
 mod lora_receive;
 mod lora_send;
 mod low_prio;
 mod oled;
+mod packet;
 mod uart;
 
 #[derive(Clone, Copy, Format, Default)]
@@ -40,7 +44,7 @@ pub struct NmeaPosition {
     longitude: f64,
     altitude: f32,
     speed_over_ground: f32,
-    num_of_fix_satellites: u32,
+    fix_satellites: u32,
 }
 impl NmeaPosition {
     fn new() -> Self {
@@ -62,7 +66,7 @@ impl AdcValue {
 esp_bootloader_esp_idf::esp_app_desc!();
 pub static POSITION_CHANNEL: Channel<CriticalSectionRawMutex, NmeaPosition, 4> = Channel::new();
 pub static ADC_CHANNEL: Channel<CriticalSectionRawMutex, AdcValue, 4> = Channel::new();
-
+pub static LORA_FREQUENCY_IN_HZ: u32 = 870_000_000;
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
@@ -92,7 +96,7 @@ async fn main(spawner: Spawner) -> ! {
     let user_led = peripherals.GPIO18;
     // let esp_usb_n = peripherals.GPIO19;
     // let esp_usb_p = peripherals.GPIO20;
-    let lora_ctl = peripherals.GPIO21;
+    let lora_lna_ctl = peripherals.GPIO21;
     let lora_busy = peripherals.GPIO38;
     // let ext_p5_9 = peripherals.GPIO39;
     let lora_ldo_en = peripherals.GPIO40;
@@ -121,8 +125,8 @@ async fn main(spawner: Spawner) -> ! {
     let cs = Output::new(lora_cs, Level::Low, OutputConfig::default());
     let busy = Input::new(lora_busy, InputConfig::default());
     let dio1 = Input::new(lora_dio1, InputConfig::default());
-    let _ = Output::new(lora_ldo_en, Level::High, OutputConfig::default()); // Enable LDO
-    let _ = Output::new(lora_ctl, Level::High, OutputConfig::default()); // Enable CTL SX1262
+    let _ldo = Output::new(lora_ldo_en, Level::High, OutputConfig::default()); // Enable LDO Permanent
+    let lna = Output::new(lora_lna_ctl, Level::High, OutputConfig::default()); // Enable Rx LNA
     let spi = Spi::new(
         peripherals.SPI2,
         esp_hal::spi::master::Config::default()
@@ -161,7 +165,8 @@ async fn main(spawner: Spawner) -> ! {
 
     spawner.spawn(uart::uart_reader(uart0, POSITION_CHANNEL.sender()).unwrap());
     spawner.spawn(oled::viewer(i2c0, POSITION_CHANNEL.receiver(), ADC_CHANNEL.receiver()).unwrap());
-    spawner.spawn(lora_send::send_packet(spi, reset, busy, dio1, cs).unwrap());
+    //spawner.spawn(lora_send::send_packet(spi, reset, busy, dio1, cs).unwrap());
+    spawner.spawn(lora_receive::receive_packet(spi, reset, busy, dio1, cs).unwrap());
     spawner.spawn(gpio::blink_led(led).unwrap());
     spawner.spawn(gpio::press_button(button).unwrap());
     spawner.spawn(gpio::pps_flash(pps_1).unwrap());
@@ -178,6 +183,13 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(low_prio::low_prio_async().unwrap());
 
     loop {
+        // Отправка
+        let pkt = Packet::new(0x0001, msg_type::SENSOR_DATA)
+            .with_payload("Привет участникам соревнований!".as_bytes())
+            .unwrap();
+        let (buf, len) = pkt.encode_to_array().unwrap();
+        //radio.send(&buf[..len]).await;
+
         info!("Main tick!");
         Timer::after(Duration::from_millis(10_000)).await;
     }

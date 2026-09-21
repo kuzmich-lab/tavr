@@ -1,11 +1,11 @@
 use crate::NmeaPosition;
-//use defmt::info;
+use defmt::info;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Sender;
 use embassy_time::{Duration, Timer};
 use esp_hal::Async;
 use esp_hal::uart::Uart;
-use nmea::Nmea;
+use nmea::{ParseResult, parse_bytes};
 
 const UART_BUFFER_SIZE: usize = 256;
 
@@ -18,7 +18,6 @@ pub async fn uart_reader(
     let mut buf = [0u8; 2048];
     let mut temp_buf = [0u8; 2048];
     let mut buf_count = 0;
-    let nmea = Nmea::default();
     let mut nmea_position = NmeaPosition::new();
     sender.send(nmea_position).await;
 
@@ -39,24 +38,30 @@ pub async fn uart_reader(
                 let item = iter.next().unwrap();
                 if iter.peek().is_some() {
                     buf_count -= item.len();
-                    //i.strip_prefix(&0x24);
-                    match nmea::parse_bytes(&item) {
-                        Ok(_) => {
-                            nmea_position.date = nmea.fix_date.unwrap_or_default();
-                            nmea_position.time = nmea.fix_time.unwrap_or_default();
-                            nmea_position.latitude = nmea.latitude.unwrap_or_default();
-                            nmea_position.longitude = nmea.longitude.unwrap_or_default();
-                            nmea_position.altitude = nmea.altitude.unwrap_or_default();
-                            nmea_position.speed_over_ground =
-                                nmea.speed_over_ground.unwrap_or_default();
-                            nmea_position.num_of_fix_satellites =
-                                nmea.num_of_fix_satellites.unwrap_or_default();
-
-                            //info!("nmea_parse: {}", nmea_position);
-                            sender.send(nmea_position).await;
+                    //strip_prefix(&0x24);
+                    match parse_bytes(&item) {
+                        Ok(ParseResult::GGA(gga)) => {
+                            nmea_position.time = gga.fix_time.unwrap_or_default();
+                            nmea_position.latitude = gga.latitude.unwrap_or_default();
+                            nmea_position.longitude = gga.longitude.unwrap_or_default();
+                            nmea_position.altitude = gga.altitude.unwrap_or_default();
+                            nmea_position.fix_satellites = gga.fix_satellites.unwrap_or_default();
+                            //info!("gga_parse: {}", &gga);
                         }
-                        Err(_) => {} // info!("NMEA Parse Error: {:?}", e),
+                        Ok(ParseResult::RMC(rmc)) => {
+                            nmea_position.date = rmc.fix_date.unwrap_or_default();
+                            nmea_position.time = rmc.fix_time.unwrap_or_default();
+                            nmea_position.latitude = rmc.lat.unwrap_or_default();
+                            nmea_position.longitude = rmc.lon.unwrap_or_default();
+                            nmea_position.speed_over_ground =
+                                rmc.speed_over_ground.unwrap_or_default();
+                            //info!("rmc_parse: {}", &rmc);
+                        }
+                        Ok(_) => {}
+                        Err(e) => info!("NMEA Parse Error: {:?}", e),
                     }
+                    //info!("nmea_position: {}", nmea_position);
+                    sender.send(nmea_position).await;
                 } else {
                     buf_count = 0;
                     let mut i = item.iter().peekable();
@@ -67,9 +72,8 @@ pub async fn uart_reader(
                     break;
                 };
             }
+            buf = temp_buf;
         }
-        buf = temp_buf;
-
         Timer::after(Duration::from_millis(100)).await;
     }
 }

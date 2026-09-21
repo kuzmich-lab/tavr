@@ -44,19 +44,19 @@ pub async fn viewer(
     let mut float_buf = [0u8; f64::FORMATTED_SIZE_DECIMAL];
     let mut u16_buf = [0u8; i16::FORMATTED_SIZE_DECIMAL];
 
-    Text::with_baseline("lat:", Point { x: 68, y: 0 }, text_style, Baseline::Top)
+    Text::with_baseline("lat:", Point { x: 64, y: 0 }, text_style, Baseline::Top)
         .draw(&mut disp)
         .unwrap();
-    Text::with_baseline("lon:", Point { x: 68, y: 10 }, text_style, Baseline::Top)
+    Text::with_baseline("lon:", Point { x: 64, y: 10 }, text_style, Baseline::Top)
         .draw(&mut disp)
         .unwrap();
-    Text::with_baseline("sat:", Point { x: 68, y: 20 }, text_style, Baseline::Top)
+    Text::with_baseline("sat:", Point { x: 64, y: 20 }, text_style, Baseline::Top)
         .draw(&mut disp)
         .unwrap();
-    Text::with_baseline("volt:", Point { x: 0, y: 0 }, text_style, Baseline::Top)
+    Text::with_baseline("bat:", Point { x: 0, y: 0 }, text_style, Baseline::Top)
         .draw(&mut disp)
         .unwrap();
-    Text::with_baseline("temp:", Point { x: 0, y: 10 }, text_style, Baseline::Top)
+    Text::with_baseline("tmp:", Point { x: 0, y: 10 }, text_style, Baseline::Top)
         .draw(&mut disp)
         .unwrap();
 
@@ -66,7 +66,7 @@ pub async fn viewer(
             Ok(nmea_position) => {
                 Text::with_baseline(
                     unsafe { from_utf8_unchecked(write(nmea_position.latitude, &mut float_buf)) },
-                    Point { x: 94, y: 0 },
+                    Point { x: 90, y: 0 },
                     text_style,
                     Baseline::Top,
                 )
@@ -74,7 +74,7 @@ pub async fn viewer(
                 .unwrap();
                 Text::with_baseline(
                     unsafe { from_utf8_unchecked(write(nmea_position.longitude, &mut float_buf)) },
-                    Point { x: 94, y: 10 },
+                    Point { x: 90, y: 10 },
                     text_style,
                     Baseline::Top,
                 )
@@ -82,12 +82,9 @@ pub async fn viewer(
                 .unwrap();
                 Text::with_baseline(
                     unsafe {
-                        from_utf8_unchecked(write(
-                            nmea_position.num_of_fix_satellites,
-                            &mut int_buf,
-                        ))
+                        from_utf8_unchecked(write(nmea_position.fix_satellites, &mut int_buf))
                     },
-                    Point { x: 94, y: 20 },
+                    Point { x: 90, y: 20 },
                     text_style,
                     Baseline::Top,
                 )
@@ -102,7 +99,7 @@ pub async fn viewer(
             Ok(adc_value) => {
                 Text::with_baseline(
                     unsafe { from_utf8_unchecked(write(adc_value.voltage, &mut u16_buf)) },
-                    Point { x: 32, y: 0 },
+                    Point { x: 26, y: 0 },
                     text_style,
                     Baseline::Top,
                 )
@@ -110,7 +107,7 @@ pub async fn viewer(
                 .unwrap();
                 Text::with_baseline(
                     unsafe { from_utf8_unchecked(write(adc_value.temp, &mut u16_buf)) },
-                    Point { x: 32, y: 10 },
+                    Point { x: 26, y: 10 },
                     text_style,
                     Baseline::Top,
                 )

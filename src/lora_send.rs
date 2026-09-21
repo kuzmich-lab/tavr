@@ -1,7 +1,7 @@
+use crate::LORA_FREQUENCY_IN_HZ;
 use defmt::info;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::mutex::Mutex;
 use embassy_time::{Delay, Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::Async;
@@ -19,23 +19,17 @@ use lora_phy::sx126x::Sx126x;
 use lora_phy::sx126x::Sx1262;
 use lora_phy::sx126x::TcxoCtrlVoltage;
 
-const LORA_FREQUENCY_IN_HZ: u32 = 870_000_000; // WARNING: Set this appropriately for the region
-
 #[embassy_executor::task]
 pub async fn send_packet(
-    spi: Spi<'static, Async>,
+    spi_device: SpiDevice<'static, NoopRawMutex, Spi<'static, Async>, Output<'static>>,
     reset: Output<'static>,
     busy: Input<'static>,
     dio1: Input<'static>,
-    cs: Output<'static>,
 ) -> ! {
-    let spi_bus: Mutex<NoopRawMutex, Spi<'static, Async>> = Mutex::new(spi);
-    let spi_device = SpiDevice::new(&spi_bus, cs);
-
     let sx126x_config = sx126x::Config {
         chip: Sx1262,
         tcxo_ctrl: Some(TcxoCtrlVoltage::Ctrl1V7),
-        use_dcdc: false,
+        use_dcdc: true,
         rx_boost: true,
     };
 
