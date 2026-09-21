@@ -15,7 +15,6 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
-use esp_hal::analog::adc::{Adc, AdcConfig, Attenuation};
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::i2c::master::I2c;
@@ -49,8 +48,21 @@ impl NmeaPosition {
     }
 }
 
+#[derive(Clone, Copy, Format, Default)]
+pub struct AdcValue {
+    voltage: u16,
+    temp: u16,
+}
+impl AdcValue {
+    fn new() -> Self {
+        Default::default()
+    }
+}
+
 esp_bootloader_esp_idf::esp_app_desc!();
 pub static POSITION_CHANNEL: Channel<CriticalSectionRawMutex, NmeaPosition, 4> = Channel::new();
+pub static ADC_CHANNEL: Channel<CriticalSectionRawMutex, AdcValue, 4> = Channel::new();
+
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
@@ -147,24 +159,22 @@ async fn main(spawner: Spawner) -> ! {
     let button = Input::new(user_button, InputConfig::default().with_pull(Pull::Up));
     let pps_1 = Input::new(gnss_1pps, InputConfig::default());
 
-    let mut adc1_config = AdcConfig::new();
-    let mut adc1_pin = adc1_config.enable_pin(battery_voltage, Attenuation::_11dB);
-    let mut adc1 = Adc::new(peripherals.ADC1, adc1_config).into_async();
-    let mut adc2_config = AdcConfig::new();
-    let mut adc2_pin = adc2_config.enable_pin(temp_samp, Attenuation::_11dB);
-    let mut adc2 = Adc::new(peripherals.ADC2, adc2_config).into_async();
-
-    info!("ADC1 (volt): {}", adc1.read_oneshot(&mut adc1_pin).await);
-    info!("ADC2 (temp): {}", adc2.read_oneshot(&mut adc2_pin).await);
-
     spawner.spawn(uart::uart_reader(uart0, POSITION_CHANNEL.sender()).unwrap());
-    spawner.spawn(oled::viewer(i2c0, POSITION_CHANNEL.receiver()).unwrap());
+    spawner.spawn(oled::viewer(i2c0, POSITION_CHANNEL.receiver(), ADC_CHANNEL.receiver()).unwrap());
     spawner.spawn(lora_send::send_packet(spi, reset, busy, dio1, cs).unwrap());
     spawner.spawn(gpio::blink_led(led).unwrap());
     spawner.spawn(gpio::press_button(button).unwrap());
     spawner.spawn(gpio::pps_flash(pps_1).unwrap());
-    // spawner.spawn(adc::get_bat_voltage(adc1, adc1_pin).unwrap());
-    // spawner.spawn(adc::get_temp(adc2, adc2_pin).unwrap());
+    spawner.spawn(
+        adc::get_adc(
+            peripherals.ADC1,
+            peripherals.ADC2,
+            battery_voltage,
+            temp_samp,
+            ADC_CHANNEL.sender(),
+        )
+        .unwrap(),
+    );
     spawner.spawn(low_prio::low_prio_async().unwrap());
 
     loop {

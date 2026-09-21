@@ -19,7 +19,7 @@ use lora_phy::sx126x::Sx126x;
 use lora_phy::sx126x::Sx1262;
 use lora_phy::sx126x::TcxoCtrlVoltage;
 
-const LORA_FREQUENCY_IN_HZ: u32 = 868_900_000; // WARNING: Set this appropriately for the region
+const LORA_FREQUENCY_IN_HZ: u32 = 870_000_000; // WARNING: Set this appropriately for the region
 
 #[embassy_executor::task]
 pub async fn send_packet(

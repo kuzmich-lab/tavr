@@ -23,7 +23,7 @@ pub async fn press_button(mut pin_button: Input<'static>) {
 pub async fn pps_flash(mut pps_1: Input<'static>) {
     loop {
         pps_1.wait_for_high().await;
-        info!("1pps flash");
+        info!("---------------------------------1 pps---------------------------------");
         Timer::after(Duration::from_millis(900)).await;
     }
 }

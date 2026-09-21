@@ -19,6 +19,9 @@ pub async fn uart_reader(
     let mut temp_buf = [0u8; 2048];
     let mut buf_count = 0;
     let nmea = Nmea::default();
+    let mut nmea_position = NmeaPosition::new();
+    sender.send(nmea_position).await;
+
     loop {
         let r = uart.read_async(&mut read_buf).await;
         match r {
@@ -30,7 +33,6 @@ pub async fn uart_reader(
             }
             Err(_) => {} //info!("read ERR: {}", err),
         }
-
         if buf_count > 1024 {
             let mut iter = buf.split_inclusive(|x| x == &10).peekable();
             while iter.peek().is_some() {
@@ -40,17 +42,16 @@ pub async fn uart_reader(
                     //i.strip_prefix(&0x24);
                     match nmea::parse_bytes(&item) {
                         Ok(_) => {
-                            let nmea_position = NmeaPosition {
-                                date: nmea.fix_date.unwrap_or_default(),
-                                time: nmea.fix_time.unwrap_or_default(),
-                                latitude: nmea.latitude.unwrap_or_default(),
-                                longitude: nmea.longitude.unwrap_or_default(),
-                                altitude: nmea.altitude.unwrap_or_default(),
-                                speed_over_ground: nmea.speed_over_ground.unwrap_or_default(),
-                                num_of_fix_satellites: nmea
-                                    .num_of_fix_satellites
-                                    .unwrap_or_default(),
-                            };
+                            nmea_position.date = nmea.fix_date.unwrap_or_default();
+                            nmea_position.time = nmea.fix_time.unwrap_or_default();
+                            nmea_position.latitude = nmea.latitude.unwrap_or_default();
+                            nmea_position.longitude = nmea.longitude.unwrap_or_default();
+                            nmea_position.altitude = nmea.altitude.unwrap_or_default();
+                            nmea_position.speed_over_ground =
+                                nmea.speed_over_ground.unwrap_or_default();
+                            nmea_position.num_of_fix_satellites =
+                                nmea.num_of_fix_satellites.unwrap_or_default();
+
                             //info!("nmea_parse: {}", nmea_position);
                             sender.send(nmea_position).await;
                         }
@@ -72,12 +73,3 @@ pub async fn uart_reader(
         Timer::after(Duration::from_millis(100)).await;
     }
 }
-
-// pub fn get_ascii_str<'a>(buffer: &'a [u8]) -> Result<&'a str, ()> {
-//     for byte in buffer.into_iter() {
-//         if byte >= &128 {
-//             return Err(());
-//         }
-//     }
-//     Ok(unsafe { core::str::from_utf8_unchecked(buffer) })
-// }
