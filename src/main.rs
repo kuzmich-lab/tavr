@@ -7,6 +7,8 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
+use core::array::from_ref;
+
 use chrono::{NaiveDate, NaiveTime};
 use defmt::Format;
 use defmt::info;
@@ -24,7 +26,6 @@ use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{AtCmdConfig, RxConfig, Uart};
 use esp_println as _;
-use lora_receive::*;
 use packet::Packet;
 use packet::msg_type;
 mod adc;
@@ -75,9 +76,9 @@ async fn main(spawner: Spawner) -> ! {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
 
-    // let boot = peripherals.GPIO0;
+    let _boot = peripherals.GPIO0;
     let lora_dio1 = peripherals.GPIO1;
-    // let exp_p5_15 = peripherals.GPIO2;
+    let _exp_p5_15 = peripherals.GPIO2;
     let nreset = peripherals.GPIO3;
     let battery_voltage = peripherals.GPIO4;
     let gnss_rxd = peripherals.GPIO5;
@@ -85,29 +86,18 @@ async fn main(spawner: Spawner) -> ! {
     let gnss_1pps = peripherals.GPIO7;
     let i2c_sda = peripherals.GPIO8;
     let i2c_sdl = peripherals.GPIO9;
-    // let sd_cs = peripherals.GPIO10;
+    let _sd_cs = peripherals.GPIO10;
     let spi_mosi = peripherals.GPIO11;
     let spi_miso = peripherals.GPIO12;
     let spi_sck = peripherals.GPIO13;
     let temp_samp = peripherals.GPIO14;
     let lora_cs = peripherals.GPIO15;
-    // let gnss_wake_up = peripherals.GPIO16;
+    let _gnss_wake_up = peripherals.GPIO16;
     let user_button = peripherals.GPIO17;
     let user_led = peripherals.GPIO18;
-    // let esp_usb_n = peripherals.GPIO19;
-    // let esp_usb_p = peripherals.GPIO20;
+    let _esp_usb_n = peripherals.GPIO19;
+    let _esp_usb_p = peripherals.GPIO20;
     let lora_lna_ctl = peripherals.GPIO21;
-    let lora_busy = peripherals.GPIO38;
-    // let ext_p5_9 = peripherals.GPIO39;
-    let lora_ldo_en = peripherals.GPIO40;
-    let fan_ctrl = peripherals.GPIO41;
-    // let ext_p5_10 = peripherals.GPIO42;
-    // let ext_txd = peripherals.GPIO43;
-    // let ext_rxd = peripherals.GPIO44;
-    // let ext_p5_8 = peripherals.GPIO45;
-    // let ext_p6_4 = peripherals.GPIO46;
-    // let ext_p5_6 = peripherals.GPIO47;
-    // let ext_p5_7 = peripherals.GPIO48;
     let _ = peripherals.GPIO26;
     let _ = peripherals.GPIO27;
     let _ = peripherals.GPIO28;
@@ -120,13 +110,24 @@ async fn main(spawner: Spawner) -> ! {
     let _ = peripherals.GPIO35;
     let _ = peripherals.GPIO36;
     let _ = peripherals.GPIO37;
+    let lora_busy = peripherals.GPIO38;
+    let _ext_p5_9 = peripherals.GPIO39;
+    let lora_ldo_en = peripherals.GPIO40;
+    let fan_ctrl = peripherals.GPIO41;
+    let _ext_p5_10 = peripherals.GPIO42;
+    let _ext_txd = peripherals.GPIO43;
+    let _ext_rxd = peripherals.GPIO44;
+    let _ext_p5_8 = peripherals.GPIO45;
+    let _ext_p6_4 = peripherals.GPIO46;
+    let _ext_p5_6 = peripherals.GPIO47;
+    let _ext_p5_7 = peripherals.GPIO48;
 
     let reset = Output::new(nreset, Level::Low, OutputConfig::default());
     let cs = Output::new(lora_cs, Level::Low, OutputConfig::default());
     let busy = Input::new(lora_busy, InputConfig::default());
     let dio1 = Input::new(lora_dio1, InputConfig::default());
     let _ldo = Output::new(lora_ldo_en, Level::High, OutputConfig::default()); // Enable LDO Permanent
-    let lna = Output::new(lora_lna_ctl, Level::High, OutputConfig::default()); // Enable Rx LNA
+    let _lna = Output::new(lora_lna_ctl, Level::High, OutputConfig::default()); // Enable Rx LNA
     let spi = Spi::new(
         peripherals.SPI2,
         esp_hal::spi::master::Config::default()
@@ -181,16 +182,19 @@ async fn main(spawner: Spawner) -> ! {
         .unwrap(),
     );
     spawner.spawn(low_prio::low_prio_async().unwrap());
-
+    //let mac = esp_hal::efuse::base_mac_address().as_bytes();
     loop {
         // Отправка
-        let pkt = Packet::new(0x0001, msg_type::SENSOR_DATA)
-            .with_payload("Привет участникам соревнований!".as_bytes())
-            .unwrap();
-        let (buf, len) = pkt.encode_to_array().unwrap();
-        //radio.send(&buf[..len]).await;
 
-        info!("Main tick!");
+        // info!("MAC: {}", mac);
+        // let mac16: [u8; 2] = mac[..2];
+        // let pkt = Packet::new(mac16, msg_type::MESSAGE)
+        //     .with_payload("Привет участникам соревнований!".as_bytes())
+        //     .unwrap();
+        // let (buf, len) = pkt.encode_to_array().unwrap();
+        // //radio.send(&buf[..len]).await;
+
+        //info!("buf{}: {}", len, buf);
         Timer::after(Duration::from_millis(10_000)).await;
     }
 }
