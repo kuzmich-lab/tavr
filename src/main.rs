@@ -7,29 +7,31 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
-use core::array::from_ref;
-
 use chrono::{NaiveDate, NaiveTime};
-use defmt::Format;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
+use embassy_sync::mutex::Mutex;
+use embassy_sync::pubsub::PubSubChannel;
+use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
+use esp_hal::efuse::{MacAddress, base_mac_address};
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::i2c::master::I2c;
 use esp_hal::spi::Mode;
 use esp_hal::spi::master::Spi;
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hal::uart::{AtCmdConfig, RxConfig, Uart};
+use esp_hal::uart::{RxConfig, Uart};
 use esp_println as _;
-use packet::Packet;
-use packet::msg_type;
+//use packet::Packet;
+//use packet::msg_type;
 mod adc;
 mod gpio;
+//mod lora_device;
 mod lora_receive;
 mod lora_send;
 mod low_prio;
@@ -37,7 +39,7 @@ mod oled;
 mod packet;
 mod uart;
 
-#[derive(Clone, Copy, Format, Default)]
+#[derive(Clone, Copy)]
 pub struct NmeaPosition {
     date: NaiveDate,
     time: NaiveTime,
@@ -47,26 +49,46 @@ pub struct NmeaPosition {
     speed_over_ground: f32,
     fix_satellites: u32,
 }
-impl NmeaPosition {
-    fn new() -> Self {
-        Default::default()
-    }
-}
 
-#[derive(Clone, Copy, Format, Default)]
+#[derive(Clone, Copy)]
 pub struct AdcValue {
     voltage: u16,
     temp: u16,
 }
-impl AdcValue {
-    fn new() -> Self {
-        Default::default()
-    }
+
+#[derive(Clone, Copy)]
+enum MsgType {
+    NavData,
+    Message,
+    Ack,
+    Ping,
+    Pong,
+}
+#[derive(Clone, Copy)]
+pub struct Message {
+    source: MacAddress,
+    destination: MacAddress,
+    msg_type: MsgType,
+    message: [u8; 256],
+    time_stamp: NaiveTime,
 }
 
 esp_bootloader_esp_idf::esp_app_desc!();
-pub static POSITION_CHANNEL: Channel<CriticalSectionRawMutex, NmeaPosition, 4> = Channel::new();
-pub static ADC_CHANNEL: Channel<CriticalSectionRawMutex, AdcValue, 4> = Channel::new();
+pub static ADC_SIGNAL: Signal<CriticalSectionRawMutex, AdcValue> = Signal::new();
+pub static MESSAGE_IN_CHANNEL: Channel<CriticalSectionRawMutex, Message, 4> = Channel::new();
+pub static MESSAGE_OUT_CHANNEL: Channel<CriticalSectionRawMutex, Message, 4> = Channel::new();
+pub static POSITION_MUTEX: Mutex<CriticalSectionRawMutex, NmeaPosition> =
+    Mutex::new(NmeaPosition {
+        date: NaiveDate::MIN,
+        time: NaiveTime::MIN,
+        latitude: 0.0,
+        longitude: 0.0,
+        altitude: 0.0,
+        speed_over_ground: 0.0,
+        fix_satellites: 0,
+    });
+pub static MESSAGE_BC: PubSubChannel<CriticalSectionRawMutex, Message, 2, 2, 8> =
+    PubSubChannel::new();
 pub static LORA_FREQUENCY_IN_HZ: u32 = 870_000_000;
 
 #[esp_rtos::main]
@@ -143,12 +165,11 @@ async fn main(spawner: Spawner) -> ! {
     let config = esp_hal::uart::Config::default()
         .with_baudrate(9600)
         .with_rx(RxConfig::default().with_fifo_full_threshold(64));
-    let mut uart0 = Uart::new(peripherals.UART0, config)
+    let uart0 = Uart::new(peripherals.UART0, config)
         .unwrap()
         .with_tx(gnss_txd)
         .with_rx(gnss_rxd)
         .into_async();
-    uart0.set_at_cmd(AtCmdConfig::default().with_cmd_char(0x0A));
 
     let i2c0 = I2c::new(
         peripherals.I2C0,
@@ -164,10 +185,10 @@ async fn main(spawner: Spawner) -> ! {
     let button = Input::new(user_button, InputConfig::default().with_pull(Pull::Up));
     let pps_1 = Input::new(gnss_1pps, InputConfig::default());
 
-    spawner.spawn(uart::uart_reader(uart0, POSITION_CHANNEL.sender()).unwrap());
-    spawner.spawn(oled::viewer(i2c0, POSITION_CHANNEL.receiver(), ADC_CHANNEL.receiver()).unwrap());
-    //spawner.spawn(lora_send::send_packet(spi, reset, busy, dio1, cs).unwrap());
-    spawner.spawn(lora_receive::receive_packet(spi, reset, busy, dio1, cs).unwrap());
+    spawner.spawn(uart::uart_reader(uart0).unwrap());
+    spawner.spawn(oled::viewer(i2c0).unwrap());
+    spawner.spawn(lora_send::send_packet(spi, reset, busy, dio1, cs).unwrap());
+    //spawner.spawn(lora_receive::receive_packet(spi, reset, busy, dio1, cs).unwrap());
     spawner.spawn(gpio::blink_led(led).unwrap());
     spawner.spawn(gpio::press_button(button).unwrap());
     spawner.spawn(gpio::pps_flash(pps_1).unwrap());
@@ -177,24 +198,13 @@ async fn main(spawner: Spawner) -> ! {
             peripherals.ADC2,
             battery_voltage,
             temp_samp,
-            ADC_CHANNEL.sender(),
         )
         .unwrap(),
     );
     spawner.spawn(low_prio::low_prio_async().unwrap());
-    //let mac = esp_hal::efuse::base_mac_address().as_bytes();
+    let mac = base_mac_address();
+    info!("Base MAC: {}", mac);
     loop {
-        // Отправка
-
-        // info!("MAC: {}", mac);
-        // let mac16: [u8; 2] = mac[..2];
-        // let pkt = Packet::new(mac16, msg_type::MESSAGE)
-        //     .with_payload("Привет участникам соревнований!".as_bytes())
-        //     .unwrap();
-        // let (buf, len) = pkt.encode_to_array().unwrap();
-        // //radio.send(&buf[..len]).await;
-
-        //info!("buf{}: {}", len, buf);
         Timer::after(Duration::from_millis(10_000)).await;
     }
 }
