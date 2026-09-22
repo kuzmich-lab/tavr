@@ -18,7 +18,7 @@ use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
-use esp_hal::efuse::{MacAddress, base_mac_address};
+use esp_hal::efuse::base_mac_address;
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::i2c::master::I2c;
 use esp_hal::spi::Mode;
@@ -27,6 +27,9 @@ use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{RxConfig, Uart};
 use esp_println as _;
+
+use crate::MsgType::Ping;
+use crate::packet::Packet;
 //use packet::Packet;
 //use packet::msg_type;
 mod adc;
@@ -49,31 +52,38 @@ pub struct NmeaPosition {
     speed_over_ground: f32,
     fix_satellites: u32,
 }
-
 #[derive(Clone, Copy)]
 pub struct AdcValue {
     voltage: u16,
     temp: u16,
 }
-
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum MsgType {
-    NavData,
-    Message,
-    Ack,
-    Ping,
-    Pong,
+    None = 0x00,
+    NavData = 0x01,
+    Message = 0x02,
+    Ack = 0x03,
+    Ping = 0x04,
+    Pong = 0x05,
 }
-#[derive(Clone, Copy)]
+// #[derive(Clone, Copy, Debug, PartialEq)]
+// enum MsgStatus {
+//     Create,
+//     Sent,
+//     Delivered,
+//     Received,
+//     Acknowledged,
+//}
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Message {
-    source: MacAddress,
-    destination: MacAddress,
+    source: [u8; 6],
+    destination: [u8; 6],
     msg_type: MsgType,
-    message: [u8; 256],
+    message_len: u8,
+    message: [u8; MAX_PAYLOAD_LEN as usize],
     time_stamp: NaiveTime,
 }
 
-esp_bootloader_esp_idf::esp_app_desc!();
 pub static ADC_SIGNAL: Signal<CriticalSectionRawMutex, AdcValue> = Signal::new();
 pub static MESSAGE_IN_CHANNEL: Channel<CriticalSectionRawMutex, Message, 4> = Channel::new();
 pub static MESSAGE_OUT_CHANNEL: Channel<CriticalSectionRawMutex, Message, 4> = Channel::new();
@@ -87,12 +97,24 @@ pub static POSITION_MUTEX: Mutex<CriticalSectionRawMutex, NmeaPosition> =
         speed_over_ground: 0.0,
         fix_satellites: 0,
     });
-pub static MESSAGE_BC: PubSubChannel<CriticalSectionRawMutex, Message, 2, 2, 8> =
+pub static MESSAGE_PBC: PubSubChannel<CriticalSectionRawMutex, Message, 2, 2, 8> =
     PubSubChannel::new();
 pub static LORA_FREQUENCY_IN_HZ: u32 = 870_000_000;
+pub static MAX_PAYLOAD_LEN: usize = 200;
 
+esp_bootloader_esp_idf::esp_app_desc!();
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
+    let default_message = Message {
+        source: [0x00; 6],
+        destination: [0x00; 6],
+        msg_type: MsgType::None,
+        message_len: 0,
+        message: [0; MAX_PAYLOAD_LEN as usize],
+        time_stamp: NaiveTime::MIN,
+    };
+    let mut messages = [default_message; 10];
+
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
     let timg0 = TimerGroup::new(peripherals.TIMG0);
@@ -204,7 +226,32 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(low_prio::low_prio_async().unwrap());
     let mac = base_mac_address();
     info!("Base MAC: {}", mac);
+    let pub0 = MESSAGE_PBC.publisher().unwrap();
     loop {
+        messages[0] = Message {
+            msg_type: Ping,
+            message: [255; 200],
+            ..default_message
+        };
+        info!("source: {}", messages[0].source);
+        info!("destination: {}", messages[0].destination);
+        info!("message_len: {}", messages[0].message_len);
+        info!("message: {}", messages[0].message);
+        info!("time_stamp: {}", messages[0].time_stamp);
+        let pack: Packet = Packet::new(messages[0]);
+        //info!("pack: {}", pack);
+        let mut send_buf = [0u8; 30];
+        let _ = pack.encode(&mut send_buf);
+        info!("send_buf: {}", send_buf);
+        pub0.publish_immediate(messages[0]);
+        messages[1] = packet::decode(&mut send_buf).unwrap();
+        info!("source: {}", messages[1].source);
+        info!("destination: {}", messages[1].destination);
+        info!("message_len: {}", messages[1].message_len);
+        info!("message: {}", messages[1].message);
+        info!("time_stamp: {}", messages[1].time_stamp);
+        assert_eq!(messages[0], messages[1]);
+
         Timer::after(Duration::from_millis(10_000)).await;
     }
 }
