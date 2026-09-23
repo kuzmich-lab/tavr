@@ -7,6 +7,8 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
+use crate::MsgType::Ping;
+use crate::packet::Packet;
 use chrono::{NaiveDate, NaiveTime};
 use defmt::info;
 use embassy_executor::Spawner;
@@ -27,16 +29,9 @@ use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{RxConfig, Uart};
 use esp_println as _;
-
-use crate::MsgType::Ping;
-use crate::packet::Packet;
-//use packet::Packet;
-//use packet::msg_type;
 mod adc;
 mod gpio;
-//mod lora_device;
-mod lora_receive;
-mod lora_send;
+mod lora_rxtx;
 mod low_prio;
 mod oled;
 mod packet;
@@ -79,14 +74,13 @@ pub struct Message {
     source: [u8; 6],
     destination: [u8; 6],
     msg_type: MsgType,
-    message_len: u8,
     message: [u8; MAX_PAYLOAD_LEN as usize],
     time_stamp: NaiveTime,
 }
 
 pub static ADC_SIGNAL: Signal<CriticalSectionRawMutex, AdcValue> = Signal::new();
-pub static MESSAGE_IN_CHANNEL: Channel<CriticalSectionRawMutex, Message, 4> = Channel::new();
-pub static MESSAGE_OUT_CHANNEL: Channel<CriticalSectionRawMutex, Message, 4> = Channel::new();
+pub static SEND_CHANNEL: Channel<CriticalSectionRawMutex, [u8; 118], 4> = Channel::new();
+pub static RECEIVE_CHANNEL: Channel<CriticalSectionRawMutex, [u8; 118], 4> = Channel::new();
 pub static POSITION_MUTEX: Mutex<CriticalSectionRawMutex, NmeaPosition> =
     Mutex::new(NmeaPosition {
         date: NaiveDate::MIN,
@@ -100,7 +94,7 @@ pub static POSITION_MUTEX: Mutex<CriticalSectionRawMutex, NmeaPosition> =
 pub static MESSAGE_PBC: PubSubChannel<CriticalSectionRawMutex, Message, 2, 2, 8> =
     PubSubChannel::new();
 pub static LORA_FREQUENCY_IN_HZ: u32 = 870_000_000;
-pub static MAX_PAYLOAD_LEN: usize = 200;
+pub static MAX_PAYLOAD_LEN: usize = 100;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 #[esp_rtos::main]
@@ -109,7 +103,6 @@ async fn main(spawner: Spawner) -> ! {
         source: [0x00; 6],
         destination: [0x00; 6],
         msg_type: MsgType::None,
-        message_len: 0,
         message: [0; MAX_PAYLOAD_LEN as usize],
         time_stamp: NaiveTime::MIN,
     };
@@ -209,7 +202,7 @@ async fn main(spawner: Spawner) -> ! {
 
     spawner.spawn(uart::uart_reader(uart0).unwrap());
     spawner.spawn(oled::viewer(i2c0).unwrap());
-    spawner.spawn(lora_send::send_packet(spi, reset, busy, dio1, cs).unwrap());
+    spawner.spawn(lora_rxtx::send_packet(spi, reset, busy, dio1, cs).unwrap());
     //spawner.spawn(lora_receive::receive_packet(spi, reset, busy, dio1, cs).unwrap());
     spawner.spawn(gpio::blink_led(led).unwrap());
     spawner.spawn(gpio::press_button(button).unwrap());
@@ -227,27 +220,31 @@ async fn main(spawner: Spawner) -> ! {
     let mac = base_mac_address();
     info!("Base MAC: {}", mac);
     let pub0 = MESSAGE_PBC.publisher().unwrap();
+    //let sub0 = MESSAGE_PBC.subscriber().unwrap();
+    let sender = SEND_CHANNEL.sender();
+    let receiver = RECEIVE_CHANNEL.receiver();
     loop {
         messages[0] = Message {
             msg_type: Ping,
-            message: [255; 200],
+            message: [0x42; 100],
             ..default_message
         };
         info!("source: {}", messages[0].source);
         info!("destination: {}", messages[0].destination);
-        info!("message_len: {}", messages[0].message_len);
         info!("message: {}", messages[0].message);
         info!("time_stamp: {}", messages[0].time_stamp);
-        let pack: Packet = Packet::new(messages[0]);
-        //info!("pack: {}", pack);
-        let mut send_buf = [0u8; 30];
-        let _ = pack.encode(&mut send_buf);
-        info!("send_buf: {}", send_buf);
         pub0.publish_immediate(messages[0]);
+
+        let pack: Packet = Packet::new(messages[0]);
+        let mut send_buf = [0u8; 118];
+        let total = pack.encode(&mut send_buf).unwrap();
+        info!("send_buf: {}", send_buf[..total]);
+        sender.send(send_buf).await;
+
+        send_buf = receiver.receive().await;
         messages[1] = packet::decode(&mut send_buf).unwrap();
         info!("source: {}", messages[1].source);
         info!("destination: {}", messages[1].destination);
-        info!("message_len: {}", messages[1].message_len);
         info!("message: {}", messages[1].message);
         info!("time_stamp: {}", messages[1].time_stamp);
         assert_eq!(messages[0], messages[1]);

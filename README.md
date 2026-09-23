@@ -47,13 +47,9 @@ Toolchain Installation
 > cargo install espup --locked
 > espup install --targets esp32s3
 > espup completions fish > ~/.config/fish/completions/espup.fish
-
-
 > cargo install esp-generate --locked
 > cargo install espflash --locked
 
-Generate Project
-> esp-config
 
 cargo build --target xtensa-esp32s3-none-elf --release
 espflash flash --monitor /dev/ttyACM0

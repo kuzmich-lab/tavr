@@ -65,12 +65,8 @@ impl Packet {
         }
     }
 
-    pub fn total_len(&self) -> usize {
-        HEADER_LEN + self.payload_len + CRC_LEN
-    }
-
     pub fn encode(&self, buf: &mut [u8]) -> Result<usize, DecodeError> {
-        let total = self.total_len();
+        let total = HEADER_LEN + self.payload_len + CRC_LEN;
         if buf.len() < total {
             return Err(DecodeError::TooShort);
         }
@@ -139,7 +135,6 @@ pub fn decode(data: &[u8]) -> Result<Message, DecodeError> {
         source: src,
         destination: dst,
         msg_type: msg_t,
-        message_len: payload_len as u8,
         message: payload,
         time_stamp: NaiveTime::MIN,
     })

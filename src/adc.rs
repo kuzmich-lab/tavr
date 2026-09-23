@@ -24,6 +24,6 @@ pub async fn get_adc(
         adc_value.voltage = adc1.read_oneshot(&mut adc_pin1).await;
         adc_value.temp = adc2.read_oneshot(&mut adc_pin2).await;
         ADC_SIGNAL.signal(adc_value);
-        Timer::after(Duration::from_millis(1_000)).await;
+        Timer::after(Duration::from_millis(100)).await;
     }
 }

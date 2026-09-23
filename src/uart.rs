@@ -61,7 +61,7 @@ pub async fn uart_reader(mut uart: Uart<'static, Async>) {
                         }
                         Ok(_) => {}
                         Err(DisabledSentence) => {}
-                        Err(e) => info!("NMEA Parse Error: {:?}", e),
+                        Err(_) => {} //info!("NMEA Parse Error: {:?}", e),
                     }
                 } else {
                     let mut temp_buf = [0u8; 1024];
