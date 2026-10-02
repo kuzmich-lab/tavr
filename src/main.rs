@@ -7,10 +7,9 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
-use crate::MsgType::Ping;
 use crate::packet::Packet;
 use chrono::{NaiveDate, NaiveTime};
-use defmt::info;
+// use defmt::info;
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
@@ -20,7 +19,7 @@ use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
-use esp_hal::efuse::base_mac_address;
+//use esp_hal::efuse::base_mac_address;
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::i2c::master::I2c;
 use esp_hal::spi::Mode;
@@ -33,6 +32,7 @@ mod adc;
 mod gpio;
 mod lora_rxtx;
 mod low_prio;
+mod msgproxy;
 mod oled;
 mod packet;
 mod uart;
@@ -99,14 +99,14 @@ pub static MAX_PAYLOAD_LEN: usize = 100;
 esp_bootloader_esp_idf::esp_app_desc!();
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
-    let default_message = Message {
-        source: [0x00; 6],
-        destination: [0x00; 6],
-        msg_type: MsgType::None,
-        message: [0; MAX_PAYLOAD_LEN as usize],
-        time_stamp: NaiveTime::MIN,
-    };
-    let mut messages = [default_message; 10];
+    // let default_message = Message {
+    //     source: [0x00; 6],
+    //     destination: [0x00; 6],
+    //     msg_type: MsgType::None,
+    //     message: [0; MAX_PAYLOAD_LEN as usize],
+    //     time_stamp: NaiveTime::MIN,
+    // };
+    //let mut messages = [default_message; 10];
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
@@ -207,6 +207,7 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(gpio::blink_led(led).unwrap());
     spawner.spawn(gpio::press_button(button).unwrap());
     spawner.spawn(gpio::pps_flash(pps_1).unwrap());
+    spawner.spawn(msgproxy::msgproxy().unwrap());
     spawner.spawn(
         adc::get_adc(
             peripherals.ADC1,
@@ -217,37 +218,37 @@ async fn main(spawner: Spawner) -> ! {
         .unwrap(),
     );
     spawner.spawn(low_prio::low_prio_async().unwrap());
-    let mac = base_mac_address();
-    info!("Base MAC: {}", mac);
-    let pub0 = MESSAGE_PBC.publisher().unwrap();
-    //let sub0 = MESSAGE_PBC.subscriber().unwrap();
-    let sender = SEND_CHANNEL.sender();
-    let receiver = RECEIVE_CHANNEL.receiver();
+    // let mac = base_mac_address();
+    // info!("Base MAC: {}", mac);
+    // let pub0 = MESSAGE_PBC.publisher().unwrap();
+    // //let sub0 = MESSAGE_PBC.subscriber().unwrap();
+    // let sender = SEND_CHANNEL.sender();
+    // let receiver = RECEIVE_CHANNEL.receiver();
     loop {
-        messages[0] = Message {
-            msg_type: Ping,
-            message: [0x42; 100],
-            ..default_message
-        };
-        info!("source: {}", messages[0].source);
-        info!("destination: {}", messages[0].destination);
-        info!("message: {}", messages[0].message);
-        info!("time_stamp: {}", messages[0].time_stamp);
-        pub0.publish_immediate(messages[0]);
-
-        let pack: Packet = Packet::new(messages[0]);
-        let mut send_buf = [0u8; 118];
-        let total = pack.encode(&mut send_buf).unwrap();
-        info!("send_buf: {}", send_buf[..total]);
-        sender.send(send_buf).await;
-
-        send_buf = receiver.receive().await;
-        messages[1] = packet::decode(&mut send_buf).unwrap();
-        info!("source: {}", messages[1].source);
-        info!("destination: {}", messages[1].destination);
-        info!("message: {}", messages[1].message);
-        info!("time_stamp: {}", messages[1].time_stamp);
-        assert_eq!(messages[0], messages[1]);
+        //         messages[0] = Message {
+        //             msg_type: Ping,
+        //             message: [0x42; 100],
+        //             ..default_message
+        //         };
+        //         info!("source: {}", messages[0].source);
+        //         info!("destination: {}", messages[0].destination);
+        //         info!("message: {}", messages[0].message);
+        //         info!("time_stamp: {}", messages[0].time_stamp);
+        //         pub0.publish_immediate(messages[0]);
+        //
+        //         let pack: Packet = Packet::new(messages[0]);
+        //         let mut send_buf = [0u8; 118];
+        //         let total = pack.encode(&mut send_buf).unwrap();
+        //         info!("send_buf: {}", send_buf[..total]);
+        //         sender.send(send_buf).await;
+        //
+        //         send_buf = receiver.receive().await;
+        //         messages[1] = packet::decode(&mut send_buf).unwrap();
+        //         info!("source: {}", messages[1].source);
+        //         info!("destination: {}", messages[1].destination);
+        //         info!("message: {}", messages[1].message);
+        //         info!("time_stamp: {}", messages[1].time_stamp);
+        //         assert_eq!(messages[0], messages[1]);
 
         Timer::after(Duration::from_millis(10_000)).await;
     }

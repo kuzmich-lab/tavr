@@ -1,4 +1,6 @@
 use crate::{ADC_SIGNAL, POSITION_MUTEX};
+use crate::{MESSAGE_PBC, MsgType};
+
 use core::str::from_utf8_unchecked;
 //use defmt::info;
 use display_interface_i2c::I2CInterface;
@@ -53,7 +55,7 @@ pub async fn viewer(i2c0: I2c<'static, Async>) {
     Text::with_baseline("tmp:", Point { x: 0, y: 10 }, text_style, Baseline::Top)
         .draw(&mut disp)
         .unwrap();
-
+    let mut sub0 = MESSAGE_PBC.subscriber().unwrap();
     loop {
         {
             let nmea_position = POSITION_MUTEX.lock().await;
@@ -103,8 +105,30 @@ pub async fn viewer(i2c0: I2c<'static, Async>) {
             .unwrap();
         };
 
-        // info!("nmea_position: {}", nmea_position);
-        // info!("adc_value: {}", adc_value);
+        let msg = sub0.next_message_pure().await;
+        match msg.msg_type {
+            MsgType::Ping => {
+                Text::with_baseline(
+                    "Sending Ping...",
+                    Point { x: 0, y: 50 },
+                    text_style,
+                    Baseline::Top,
+                )
+                .draw(&mut disp)
+                .unwrap();
+            }
+            MsgType::Pong => {
+                Text::with_baseline(
+                    "Reseived Pong",
+                    Point { x: 0, y: 50 },
+                    text_style,
+                    Baseline::Top,
+                )
+                .draw(&mut disp)
+                .unwrap();
+            }
+            _ => {}
+        }
 
         disp.flush().await.unwrap();
         Timer::after(Duration::from_millis(100)).await;
